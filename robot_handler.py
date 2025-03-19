@@ -5,7 +5,9 @@ import json
 import threading
 from std_msgs.msg import String
 from kinova_msgs.msg import PoseVelocity
-from std_srvs.srv import Empty as EmptySrv
+from kinova_msgs.msg import HomeArm
+from kinova_msgs.msg import Start
+from kinova_msgs.msg import Stop
 from std_msgs.msg import Empty as EmptyMsg
 from enum import Enum
 
@@ -51,7 +53,7 @@ class KinovaStateMachine:
         rospy.loginfo("Received home command")
         self.current_state = RobotState.HOME
         rospy.wait_for_service("/j2n6s300_driver/in/home_arm")
-        home_service = rospy.ServiceProxy("/j2n6s300_driver/in/home_arm", EmptySrv)
+        home_service = rospy.ServiceProxy("/j2n6s300_driver/in/home_arm", HomeArm)
         home_service()
         rospy.loginfo("Robot moved to home position")
         self.current_state = RobotState.IDLE  # Move back to IDLE after homing
@@ -68,7 +70,7 @@ class KinovaStateMachine:
         rospy.loginfo("Received geofence start command")
         self.current_state = RobotState.GEOFENCE
         rospy.wait_for_service("/j2n6s300_driver/in/start_force_control")
-        geofence_service = rospy.ServiceProxy("/j2n6s300_driver/in/start_force_control", EmptySrv)
+        geofence_service = rospy.ServiceProxy("/j2n6s300_driver/in/start_force_control", Start)
         geofence_service()
         rospy.loginfo("Geofence enabled")
 
@@ -77,7 +79,7 @@ class KinovaStateMachine:
         rospy.loginfo("Received geofence stop command")
         self.current_state = RobotState.IDLE
         rospy.wait_for_service("/j2n6s300_driver/in/stop_force_control")
-        geofence_service = rospy.ServiceProxy("/j2n6s300_driver/in/stop_force_control", EmptySrv)
+        geofence_service = rospy.ServiceProxy("/j2n6s300_driver/in/stop_force_control", Stop)
         geofence_service()
         rospy.loginfo("Geofence disabled, returning to idle mode")
 
