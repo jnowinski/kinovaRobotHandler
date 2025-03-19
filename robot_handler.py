@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import rospy
 import json
 import threading
@@ -74,4 +76,30 @@ class KinovaStateMachine:
         rospy.loginfo("Received geofence stop command")
         self.current_state = RobotState.IDLE
         rospy.wait_for_service("/j2n6s300_driver/in/stop_force_control")
-        geofence_service = rospy.ServiceProxy("/j2n6s300_driver/in/stop_force_control", E
+        geofence_service = rospy.ServiceProxy("/j2n6s300_driver/in/stop_force_control", Empty)
+        geofence_service()
+        rospy.loginfo("Geofence disabled, returning to idle mode")
+
+    def publish_velocity(self):
+        """Continuously publish velocity updates at 100 Hz if in VELOCITY state."""
+        while not rospy.is_shutdown():
+            if self.current_state == RobotState.VELOCITY:
+                with self.velocity_lock:
+                    if self.velocity:
+                        vel_msg = PoseVelocity()
+                        vel_msg.twist_linear_x = self.velocity.twist_linear_x
+                        vel_msg.twist_linear_y = self.velocity.twist_linear_y
+                        vel_msg.twist_linear_z = self.velocity.twist_linear_z
+                        vel_msg.twist_angular_x = self.velocity.twist_angular_x
+                        vel_msg.twist_angular_y = self.velocity.twist_angular_y
+                        vel_msg.twist_angular_z = self.velocity.twist_angular_z
+
+                        self.velocity_pub.publish(vel_msg)
+                        rospy.loginfo("Published velocity: %s", vel_msg)
+
+            self.rate.sleep()  # Maintain 100 Hz publishing rate
+
+if __name__ == "__main__":
+    KinovaStateMachine()
+    rospy.spin()
+
