@@ -5,8 +5,8 @@ import json
 import threading
 from std_msgs.msg import String
 from kinova_msgs.msg import PoseVelocity
-from std_srvs.srv import EmptySrv
-from std_msgs.msg import EmptyMsg
+from std_srvs.srv import Empty as EmptySrv
+from std_msgs.msg import Empty as EmptyMsg
 from enum import Enum
 
 # Enum for states
