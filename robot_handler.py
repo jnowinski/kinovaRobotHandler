@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
+"""
+CUSTOM ROS NODE FOR HANDLING ROBOT STATE AND CONTROL
+"""
+
 import rospy
 import json
 import threading
-from std_msgs.msg import String
+from std_msgs.msg import String, Empty as EmptyMsg
 from kinova_msgs.msg import PoseVelocity
-from kinova_msgs.msg import HomeArm
-from kinova_msgs.msg import Start
-from kinova_msgs.msg import Stop
-from std_msgs.msg import Empty as EmptyMsg
+from kinova_msgs.srv import HomeArm, Start, Stop
+from geometry_msgs.msg import PoseStamped
 from enum import Enum
 
 # Enum for states
@@ -27,6 +29,7 @@ class KinovaStateMachine:
 
         # Store velocity for continuous publishing
         self.velocity = None
+        self.current_pose = None  # Store latest tool pose
 
         # Lock for synchronizing access to velocity
         self.velocity_lock = threading.Lock()
@@ -36,6 +39,9 @@ class KinovaStateMachine:
         self.command_sub_velocity = rospy.Subscriber("update_velocity", PoseVelocity, self.velocity_callback)
         self.command_sub_geofence_start = rospy.Subscriber("start_geofence", EmptyMsg, self.geofence_start_callback)
         self.command_sub_geofence_stop = rospy.Subscriber("stop_geofence", EmptyMsg, self.geofence_stop_callback)
+
+        # Subscribe to robot tool pose updates
+        self.pose_sub = rospy.Subscriber("/j2n6s300_driver/out/tool_pose", PoseStamped, self.tool_pose_callback)
 
         # Publisher for velocity commands
         self.velocity_pub = rospy.Publisher("/j2n6s300_driver/in/cartesian_velocity", PoseVelocity, queue_size=10)
@@ -47,6 +53,19 @@ class KinovaStateMachine:
 
         # Start the continuous velocity publishing loop
         self.publish_velocity()
+
+    def tool_pose_callback(self, msg):
+        """Updates the current pose of the robot arm."""
+        self.current_pose = {
+            "X": msg.pose.position.x,
+            "Y": msg.pose.position.y,
+            "Z": msg.pose.position.z,
+            "ThetaX": msg.pose.orientation.x,
+            "ThetaY": msg.pose.orientation.y,
+            "ThetaZ": msg.pose.orientation.z,
+            "ThetaW": msg.pose.orientation.w
+        }
+        rospy.loginfo("Updated tool pose: %s", self.current_pose)
 
     def home_callback(self, msg):
         """Sets the robot mode to home and homes the robot."""
@@ -105,4 +124,3 @@ class KinovaStateMachine:
 if __name__ == "__main__":
     KinovaStateMachine()
     rospy.spin()
-
