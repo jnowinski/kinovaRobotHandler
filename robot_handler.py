@@ -141,36 +141,34 @@ class KinovaStateMachine:
         """Continuously publish velocity updates at 100 Hz if in VELOCITY state."""
         while not rospy.is_shutdown():
             if self.current_state == RobotState.VELOCITY:
-                with self.velocity_lock:
-                    if self.velocity and self.current_pose:
-                        # Extract quaternion
+                if not self.velocity or not self.current_pose:
+                    continue
+                with self.current_pose.lock:
                         qx = self.current_pose["ThetaX"]
                         qy = self.current_pose["ThetaY"]
                         qz = self.current_pose["ThetaZ"]
                         qw = self.current_pose["ThetaW"]
-
-                        # Convert quaternion to rotation matrix (Optimized)
-                        R_ee_base = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()  # 3x3 rotation matrix
-
-                        # Transform velocity to end-effector frame
+                with self.velocity_lock:
                         v_base = np.array([
                             self.velocity.twist_linear_x,
                             self.velocity.twist_linear_y,
                             self.velocity.twist_linear_z
                         ])
+                # Convert quaternion to rotation matrix (Optimized)
+                R_ee_base = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()  # 3x3 rotation matrix
+                #Get velocity in terms of end effector basis
+                v_ee = R_ee_base.T @ v_base
 
-                    v_ee = R_ee_base.T @ v_base
+                # Construct and publish the transformed velocity message
+                vel_msg = PoseVelocity()
+                vel_msg.twist_linear_x = v_ee[0]
+                vel_msg.twist_linear_y = v_ee[1]
+                vel_msg.twist_linear_z = v_ee[2]
+                vel_msg.twist_angular_x = self.velocity.twist_angular_x  # Angular velocity remains unchanged
+                vel_msg.twist_angular_y = self.velocity.twist_angular_y
+                vel_msg.twist_angular_z = self.velocity.twist_angular_z
 
-                    # Construct and publish the transformed velocity message
-                    vel_msg = PoseVelocity()
-                    vel_msg.twist_linear_x = v_ee[0]
-                    vel_msg.twist_linear_y = v_ee[1]
-                    vel_msg.twist_linear_z = v_ee[2]
-                    vel_msg.twist_angular_x = self.velocity.twist_angular_x  # Angular velocity remains unchanged
-                    vel_msg.twist_angular_y = self.velocity.twist_angular_y
-                    vel_msg.twist_angular_z = self.velocity.twist_angular_z
-
-                    self.velocity_pub.publish(vel_msg)
+                self.velocity_pub.publish(vel_msg)
 
 
 if __name__ == "__main__":
