@@ -24,6 +24,11 @@ class RobotState(Enum):
     HOME = 3
     GEOFENCE = 4
 
+# Enum for axis of positional movement
+class Axis(Enum):
+    X = 1
+    Y = 2
+    Z = 3
 
 class KinovaStateMachine:
     def __init__(self):
@@ -31,11 +36,13 @@ class KinovaStateMachine:
 
         # Initial state is IDLE
         self.current_state = RobotState.IDLE
+        self.axis = None
         self.geofence_points = []
 
         # Store velocity for continuous publishing
         self.velocity = None
         self.current_pose = None  # Store latest tool pose
+        self.rotation = np.identity(3)
 
         # Locks for synchronizing access to velocity and pose
         self.velocity_lock = threading.Lock()
@@ -76,15 +83,7 @@ class KinovaStateMachine:
     def tool_pose_callback(self, msg):
         """Updates the current pose of the robot arm."""
         with self.pose_lock:
-            self.current_pose = {
-                "X": msg.pose.position.x,
-                "Y": msg.pose.position.y,
-                "Z": msg.pose.position.z,
-                "ThetaX": msg.pose.orientation.x,
-                "ThetaY": msg.pose.orientation.y,
-                "ThetaZ": msg.pose.orientation.z,
-                "ThetaW": msg.pose.orientation.w
-            }
+            self.current_pose = msg.pose
 
     def add_point_callback(self, msg):
         """Adds a point to the geofencing boundary, publishes this point to the server on the get_point topic"""
@@ -92,7 +91,7 @@ class KinovaStateMachine:
             if self.current_pose is None:
                 rospy.logwarn("No current pose available, ignoring point addition.")
                 return
-            x, y = self.current_pose["X"], self.current_pose["Y"]
+            x, y = self.current_pose.position.x, self.current_pose.position.y
 
         self.geofence_points.append([x, y])
 
@@ -143,23 +142,37 @@ class KinovaStateMachine:
             if self.current_state == RobotState.VELOCITY:
                 if not self.velocity or not self.current_pose:
                     continue
-                with self.current_pose.lock:
-                        qx = self.current_pose["ThetaX"]
-                        qy = self.current_pose["ThetaY"]
-                        qz = self.current_pose["ThetaZ"]
-                        qw = self.current_pose["ThetaW"]
                 with self.velocity_lock:
-                        v_base = np.array([
-                            self.velocity.twist_linear_x,
-                            self.velocity.twist_linear_y,
-                            self.velocity.twist_linear_z
-                        ])
-                # Convert quaternion to rotation matrix (Optimized)
-                R_ee_base = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()  # 3x3 rotation matrix
-                #Get velocity in terms of end effector basis
-                v_ee = R_ee_base.T @ v_base
+                    v_base = np.array([
+                        self.velocity.twist_linear_x,
+                        self.velocity.twist_linear_y,
+                        self.velocity.twist_linear_z
+                    ])
+                
+                non_zero_index = [index for index, value in enumerate(v_base) if value != 0]
+                if non_zero_index[0] == 0:
+                    new_axis = Axis.X
+                elif non_zero_index[0] == 1:
+                    new_axis = Axis.Y
+                elif non_zero_index[0] == 2:
+                    new_axis = Axis.Z
+                else:
+                    new_axis = self.current_axis
+                
+                if new_axis != self.current_axis:
+                    with self.pose_lock:
+                        qx = self.current_pose.orientation.x
+                        qy = self.current_pose.orientation.y
+                        qz = self.current_pose.orientation.z
+                        qw = self.current_pose.orientation.w
+                    # Convert quaternion to rotation matrix
+                    self.rotation = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()  # 3x3 rotation matrix
+                    self.current_axis = new_axis
 
-                # Construct and publish the transformed velocity message
+                #Get velocity in terms of end effector basis
+                v_ee = self.rotation.T @ v_base
+
+                # Publish new velocity msg
                 vel_msg = PoseVelocity()
                 vel_msg.twist_linear_x = v_ee[0]
                 vel_msg.twist_linear_y = v_ee[1]
