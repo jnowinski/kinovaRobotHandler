@@ -36,7 +36,7 @@ class KinovaStateMachine:
 
         # Initial state is IDLE
         self.current_state = RobotState.IDLE
-        self.axis = None
+        self.current_axis = None
         self.geofence_points = []
 
         # Store velocity for continuous publishing
@@ -52,7 +52,7 @@ class KinovaStateMachine:
         rospy.wait_for_service("/j2n6s300_driver/in/home_arm")
         rospy.wait_for_service("/j2n6s300_driver/in/start_force_control")
         rospy.wait_for_service("/j2n6s300_driver/in/stop_force_control")
-        
+
         self.home_service = rospy.ServiceProxy("/j2n6s300_driver/in/home_arm", HomeArm)
         self.start_geofence_service = rospy.ServiceProxy("/j2n6s300_driver/in/start_force_control", Start)
         self.stop_geofence_service = rospy.ServiceProxy("/j2n6s300_driver/in/stop_force_control", Stop)
@@ -111,6 +111,8 @@ class KinovaStateMachine:
         """Sets the robot mode to home and homes the robot."""
         rospy.loginfo("Received home command")
         self.current_state = RobotState.HOME
+        self.current_axis = None
+        self.rotation = np.identity(3)
         self.home_service()
         rospy.loginfo("Robot moved to home position")
         self.current_state = RobotState.IDLE  # Move back to IDLE after homing
@@ -142,6 +144,7 @@ class KinovaStateMachine:
             if self.current_state == RobotState.VELOCITY:
                 if not self.velocity or not self.current_pose:
                     continue
+
                 with self.velocity_lock:
                     v_base = np.array([
                         self.velocity.twist_linear_x,
@@ -150,12 +153,13 @@ class KinovaStateMachine:
                     ])
                 
                 non_zero_index = [index for index, value in enumerate(v_base) if value != 0]
-                if non_zero_index[0] == 0:
-                    new_axis = Axis.X
-                elif non_zero_index[0] == 1:
-                    new_axis = Axis.Y
-                elif non_zero_index[0] == 2:
-                    new_axis = Axis.Z
+                if len(non_zero_index) == 1:
+                    if non_zero_index[0] == 0:
+                        new_axis = Axis.X
+                    elif non_zero_index[0] == 1:
+                        new_axis = Axis.Y
+                    else:
+                        new_axis = Axis.Z
                 else:
                     new_axis = self.current_axis
                 
@@ -166,11 +170,11 @@ class KinovaStateMachine:
                         qz = self.current_pose.orientation.z
                         qw = self.current_pose.orientation.w
                     # Convert quaternion to rotation matrix
-                    self.rotation = Rotation.from_quat([qx, qy, qz, qw]).as_matrix()  # 3x3 rotation matrix
+                    self.rotation = Rotation.from_quat([qx, qy, qz, qw]).as_dcm()  # 3x3 rotation matrix
                     self.current_axis = new_axis
 
                 #Get velocity in terms of end effector basis
-                v_ee = self.rotation.T @ v_base
+                v_ee = self.rotation @ v_base
 
                 # Publish new velocity msg
                 vel_msg = PoseVelocity()
